@@ -1,2 +1,3 @@
-# Data Science Specialization Practical Machine Learning -FinalProject
-FinalProject for DS8
+# Data Science Specialization 
+# Practical Machine Learning
+Final Project
