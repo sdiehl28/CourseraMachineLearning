@@ -164,7 +164,7 @@ table(na_count)</code></pre>
 ## 19294 19296 19299 19300 19301 19622 
 ##     1     2     1     4     2     6</code></pre>
 <p>We see 57 columns with no NAs, and 3 columns with 1 NA. The rest of the columns are over 97% NA.</p>
-<p>Also, a visual examination of the data shows that the first 6 columns are useful as predictors. Remove these as well.</p>
+<p>Also, a visual examination of the data shows that the first 6 columns are not useful as predictors. Remove these as well.</p>
 <pre class="r"><code># remove the columns with 19216 or more NAs
 cols_to_remove &lt;- which(na_count &gt;= 19216)
 
@@ -178,7 +178,7 @@ print(paste(&quot;train_data&quot;, paste(dim(train_data), collapse=&quot; &quot
 <pre><code>## [1] &quot;train_data 19622 54&quot;</code></pre>
 <pre class="r"><code>print(paste(&quot;test_data&quot;, paste(dim(test_data), collapse=&quot; &quot;)))</code></pre>
 <pre><code>## [1] &quot;test_data 20 54&quot;</code></pre>
-<p>So we are down to 19622 rows and 54 columns.</p>
+<p>So we are down to 19622 rows and 54 columns on train_data.</p>
 <p>Let’s just look at complete cases (rows with no NAs).</p>
 <pre class="r"><code># only keep records with no NAs
 train_data &lt;- train_data[complete.cases(train_data),]
@@ -186,10 +186,11 @@ print(paste(&quot;train_data&quot;, paste(dim(train_data), collapse=&quot; &quot
 <pre><code>## [1] &quot;train_data 19621 54&quot;</code></pre>
 <pre class="r"><code>print(paste(&quot;test_data&quot;, paste(dim(test_data), collapse=&quot; &quot;)))</code></pre>
 <pre><code>## [1] &quot;test_data 20 54&quot;</code></pre>
-<p>We see one row was removed.</p>
-<p>Normally data would be split something like 60% train, 20% validation and 20% test. Here Train has 19621 records and Test only has 20 records. So pml_test is not really a test set. pml_test will be used to submit predictions to the last quiz in the course, but nothing else.</p>
+<p>We see one row was removed from train_data.</p>
+<p>Normally data would be split something like 70% train and 30% test, or perhaps 60% train, 20% validation and 20% test.</p>
+<p>Here we see that train_data (pml_train with fewer columns) has 19621 records but test_data (pml_test with fewer columns) only has 20 records. 20 records is much too small to be useful as a test set for estimating model accuarcy. pml_test will only be used for making predictions against it as required by the last Quiz in this course.</p>
 <p>We need to create a train and test set from train_data.</p>
-<pre class="r"><code>set.seed(314159) # For reproducibile purpose
+<pre class="r"><code>set.seed(314159) # so createDataPartition is reproducible
 indexes &lt;- createDataPartition(train_data$classe, p=0.70, list=F)
 train &lt;- train_data[indexes, ]
 test &lt;- train_data[-indexes, ]
@@ -202,7 +203,7 @@ print(paste(&quot;train&quot;, paste(dim(train), collapse=&quot; &quot;)))</code
 <h2>Building the Model</h2>
 <div id="for-performance-only" class="section level3">
 <h3>For Performance Only</h3>
-<p>My Linux computer as 4 cores. Use all 4 cores to create the Random Forest</p>
+<p>My Linux computer has 4 cores. Use all 4 cores to create the Random Forest.</p>
 <pre class="r"><code>library(doParallel)
 
 # be sure to stop an existing cluster before starting a new one
@@ -213,6 +214,9 @@ if (exists(&quot;cl&quot;)) {
 # FORK only works on Linux
 cl &lt;- makeCluster(4, type=&quot;FORK&quot;)
 registerDoParallel(cl)</code></pre>
+</div>
+<div id="create-the-random-forest" class="section level3">
+<h3>Create the Random Forest</h3>
 <p>Use 5 fold cross validation. Allow parallel processing.</p>
 <pre class="r"><code>controlRF &lt;- trainControl(method = &quot;cv&quot;,
                            number = 5,
@@ -241,7 +245,7 @@ modelRF</code></pre>
 </div>
 <div id="estimate-the-accuarcy" class="section level2">
 <h2>Estimate the Accuarcy</h2>
-<p>The caret package automatically tuned the mtry hyperparameter to be 27. As the train data was used to find the best model, we cannot also use it to estimate accuarcy of the best model it found (without being overly optimistic).</p>
+<p>The caret package automatically tuned the mtry hyperparameter to be 27. As the train data was used to find the best model, we cannot also use it to estimate the accuarcy of the best model it found (without being overly optimistic).</p>
 <pre class="r"><code># use the best RF model (mtry=27) on the test data and compute the accuarcy
 predictRf &lt;- predict(modelRF, test)
 confusionMatrix(test$classe, predictRf)</code></pre>
@@ -276,12 +280,13 @@ confusionMatrix(test$classe, predictRf)</code></pre>
 ## Detection Rate         0.2843   0.1929   0.1739   0.1626   0.1834
 ## Detection Prevalence   0.2843   0.1936   0.1744   0.1638   0.1839
 ## Balanced Accuracy      0.9991   0.9974   0.9963   0.9988   0.9992</code></pre>
-<p>We see from above that the estimated accuarcy is 99.71% with a 95% confidence interval of the accuarcy being 99.54% to 99.83%.</p>
+<p>We see from above that the estimated accuarcy is 99.71% with a 95% confidence interval of the accuarcy being between 99.54% and 99.83%.</p>
 <p>As this model was run on out-of-sample data, 99.71% is the out-of-sample accuarcy. The out-of-sample error rate is the compliment of this, which is 0.29%</p>
 </div>
-<div id="predict-on-pml_test-with-appropriate-columns-removed-for-the-quiz" class="section level2">
-<h2>Predict on pml_test (with appropriate columns removed) for the Quiz</h2>
-<pre class="r"><code>predict(modelRF, test_data)</code></pre>
+<div id="predict-on-test_data-for-quiz" class="section level2">
+<h2>Predict on test_data for Quiz</h2>
+<pre class="r"><code># test_data is pml_test with appropriate columns removed
+predict(modelRF, test_data)</code></pre>
 <pre><code>##  [1] B A B A A E D B A A B C B A E E A B B B
 ## Levels: A B C D E</code></pre>
 </div>

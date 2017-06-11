@@ -81,8 +81,7 @@ We see one row was removed from train_data.
 Normally data would be split something like 70% train and 30% test, or perhaps 60% train, 20% validation and 20% test.
 
 Here we see that train_data (pml_train with fewer columns) has 19621 records but test_data (pml_test with fewer columns) only has 20 records.  20 records is much too small to be useful
-as a test set for estimating model accuarcy.  The purpose of pml_test appears to be to make
-predictions against for the last Quiz in this course.
+as a test set for estimating model accuarcy.  pml_test will only be used for making predictions against it as required by the last Quiz in this course.
 
 We need to create a train and test set from train_data.
 ```{r}
@@ -98,7 +97,7 @@ print(paste("test", paste(dim(test), collapse=" ")))
 
 ### For Performance Only
 
-My Linux computer as 4 cores.  Use all 4 cores to create the Random Forest
+My Linux computer has 4 cores.  Use all 4 cores to create the Random Forest.
 ```{r message=FALSE}
 library(doParallel)
 
@@ -124,7 +123,7 @@ modelRF
 
 ## Estimate the Accuarcy
 
-The caret package automatically tuned the mtry hyperparameter to be 27.  As the train data was used to find the best model, we cannot also use it to estimate accuarcy of the best model it found (without being overly optimistic).
+The caret package automatically tuned the mtry hyperparameter to be 27.  As the train data was used to find the best model, we cannot also use it to estimate the accuarcy of the best model it found (without being overly optimistic).
 
 ```{r}
 # use the best RF model (mtry=27) on the test data and compute the accuarcy
@@ -132,12 +131,13 @@ predictRf <- predict(modelRF, test)
 confusionMatrix(test$classe, predictRf)
 ```
 
-We see from above that the estimated accuarcy is 99.71% with a 95% confidence interval of the accuarcy being 99.54% to 99.83%.
+We see from above that the estimated accuarcy is 99.71% with a 95% confidence interval of the accuarcy being between 99.54% and 99.83%.
 
 As this model was run on out-of-sample data, 99.71% is the out-of-sample accuarcy.  The out-of-sample error rate is the compliment of this, which is 0.29%
 
-## Predict on test_data (which is pml_test with appropriate columns removed) for the Quiz
+## Predict on test_data for Quiz
 ```{r}
+# test_data is pml_test with appropriate columns removed
 predict(modelRF, test_data)
 ```
 
