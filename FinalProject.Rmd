@@ -29,7 +29,7 @@ The data for this project come from this source: http://groupware.les.inf.puc-ri
 
 ## Reading in the Data
 
-Looking at the data, there are 3 ways a number can be NA.  Account for that in read_csv.
+In this data set, there are 3 representations for NA.  Account for this in read_csv.
 ```{r warning=FALSE, message=FALSE}
 library(tidyverse)
 library(caret)
@@ -41,63 +41,112 @@ print(paste("Test", paste(dim(pml_test), collapse=" ")))
 
 ## Cleaning the Data
 
+Many columns are almost entirely NAs.  Examine the distribution of NAs.
 ```{r}
 # get the counts of NA in each column
 na_count <-sapply(pml_train, function(y) sum(length(which(is.na(y)))))
 
-# if there are more than 95% NAs, remove that column
-cols_to_remove <- which(na_count > 0.95*19622)
+# look at the distribution of counts
+table(na_count)
+```
 
-# examination of columns by eye shows that first 6 columns are also not meaninful predictors
+We see 57 columns with no NAs, and 3 columns with 1 NA.  The rest of the columns are over 97% NA.
+
+Also, a visual examination of the data shows that the first 6 columns are not useful as predictors. Remove these as well.
+
+```{r}
+# remove the columns with 19216 or more NAs
+cols_to_remove <- which(na_count >= 19216)
+
+# also remove the first 6 columns
 cols_to_remove <- union(cols_to_remove, 1:6)
 
 # whatever is done to one data set must be done to the other
-train <- subset(pml_train, select = -cols_to_remove)
-test <- subset(pml_test, select = -cols_to_remove)
-print(paste("Train", paste(dim(train), collapse=" ")))
-print(paste("Test", paste(dim(test), collapse=" ")))
+train_data <- subset(pml_train, select = -cols_to_remove)
+test_data <- subset(pml_test, select = -cols_to_remove)
+print(paste("train_data", paste(dim(train_data), collapse=" ")))
+print(paste("test_data", paste(dim(test_data), collapse=" ")))
 ```
+So we are down to 19622 rows and 54 columns on train_data.
 
-Normally data would be split something like 60% train, 20% validation, 20% test.  Here we see Train has 19622 records and Test only has 20 records.  So pml_test is not really a test set.  It will be used to submit results for the last quiz in the course, but that's it.
-
-Break pml_train into train and test.
+Let's just look at complete cases (rows with no NAs).
 ```{r}
-set.seed(314159) # For reproducibile purpose
-indexes <- createDataPartition(pml_train$classe, p=0.70, list=F)
-train <- pml_train[indexes, ]
-test <- pml_train[-indexes, ]
+# only keep records with no NAs
+train_data <- train_data[complete.cases(train_data),]
+print(paste("train_data", paste(dim(train_data), collapse=" ")))
+print(paste("test_data", paste(dim(test_data), collapse=" ")))
+```
+We see one row was removed from train_data.
+
+Normally data would be split something like 70% train and 30% test, or perhaps 60% train, 20% validation and 20% test.
+
+Here we see that train_data (pml_train with fewer columns) has 19621 records but test_data (pml_test with fewer columns) only has 20 records.  20 records is much too small to be useful
+as a test set for estimating model accuarcy.  The purpose of pml_test appears to be to make
+predictions against for the last Quiz in this course.
+
+We need to create a train and test set from train_data.
+```{r}
+set.seed(314159) # so createDataPartition is reproducible
+indexes <- createDataPartition(train_data$classe, p=0.70, list=F)
+train <- train_data[indexes, ]
+test <- train_data[-indexes, ]
+print(paste("train", paste(dim(train), collapse=" ")))
+print(paste("test", paste(dim(test), collapse=" ")))
 ```
 
 ## Building the Model
 
-Random Forests work well with almost no preprocessing.  Its okay to keep columns that are mostly NA, or rows that have NA in them.  This does not affect the accuarcy of the Random Forest.
+### For Performance Only
 
-That said, if a column cannot possibly be of value as a predictor, such as:
+My Linux computer as 4 cores.  Use all 4 cores to create the Random Forest
+```{r message=FALSE}
+library(doParallel)
 
-- Record number in column 1
-- Time value in column 3
-- Time value in column 4
-- Time value in column 5
+# be sure to stop an existing cluster before starting a new one
+if (exists("cl")) {
+    stopCluster(cl)
+}
 
-then these columns should be removed.  Whatever is done to the training data set, must also be done to the other data sets.
-
-Also, let's remove columns with near zero variance.
-
-```{r}
-indexes <- union(nearZeroVar(pml_train), c(1,3,4,5))
-
-train_processed <- subset(train, select = -indexes)
-test_processed <- subset(test, select = -indexes)
-test_quiz_processed <- subset(pml_test, select = -indexes)
-print(paste("Train", paste(dim(train_processed), collapse=" ")))
-print(paste("Test",  paste(dim(test_processed), collapse=" ")))
-print(paste("Quiz",  paste(dim(test_quiz_processed), collapse=" ")))
+# FORK only works on Linux
+cl <- makeCluster(4, type="FORK")
+registerDoParallel(cl)
 ```
 
-```{r}
-controlRF <- trainControl(method="cv", 5)
-modelRF <- train(classe ~ ., data=train_processed, method="rf", trControl=controlRF, 
-                 ntree=250, na.action = na.pass) # NA's are okay
+### Create the Random Forest
+Use 5 fold cross validation.  Allow parallel processing.
+```{r message=FALSE}
+controlRF <- trainControl(method = "cv",
+                           number = 5,
+                           allowParallel = TRUE)
+modelRF <- train(classe ~ ., data=train, method="rf", trControl=controlRF, ntree=250)
 modelRF
 ```
+
+## Estimate the Accuarcy
+
+The caret package automatically tuned the mtry hyperparameter to be 27.  As the train data was used to find the best model, we cannot also use it to estimate accuarcy of the best model it found (without being overly optimistic).
+
+```{r}
+# use the best RF model (mtry=27) on the test data and compute the accuarcy
+predictRf <- predict(modelRF, test)
+confusionMatrix(test$classe, predictRf)
+```
+
+We see from above that the estimated accuarcy is 99.71% with a 95% confidence interval of the accuarcy being 99.54% to 99.83%.
+
+As this model was run on out-of-sample data, 99.71% is the out-of-sample accuarcy.  The out-of-sample error rate is the compliment of this, which is 0.29%
+
+## Predict on test_data (which is pml_test with appropriate columns removed) for the Quiz
+```{r}
+predict(modelRF, test_data)
+```
+
+
+## House Keeping for Parallel Processing Only
+It's a good idea to shut down the parallel cluster explicitly to ensure no memory leaks.
+```{r}
+stopCluster(cl)
+```
+
+
 

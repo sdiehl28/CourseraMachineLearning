@@ -138,6 +138,158 @@ $(document).ready(function () {
 <p>The test data are available here: <a href="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv" class="uri">https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv</a></p>
 <p>The data for this project come from this source: <a href="http://groupware.les.inf.puc-rio.br/har" class="uri">http://groupware.les.inf.puc-rio.br/har</a>. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.</p>
 </div>
+<div id="reading-in-the-data" class="section level2">
+<h2>Reading in the Data</h2>
+<p>In this data set, there are 3 representations for NA. Account for this in read_csv.</p>
+<pre class="r"><code>library(tidyverse)
+library(caret)
+pml_train &lt;- read_csv(&quot;./data/pml-training.csv&quot;, na=c(&quot;NA&quot;, &quot;&quot;, &quot;#DIV/0!&quot;))
+pml_test &lt;- read_csv(&quot;./data/pml-testing.csv&quot;, na=c(&quot;NA&quot;, &quot;&quot;, &quot;#DIV/0!&quot;))
+print(paste(&quot;Train&quot;, paste(dim(pml_train), collapse=&quot; &quot;)))</code></pre>
+<pre><code>## [1] &quot;Train 19622 160&quot;</code></pre>
+<pre class="r"><code>print(paste(&quot;Test&quot;, paste(dim(pml_test), collapse=&quot; &quot;)))</code></pre>
+<pre><code>## [1] &quot;Test 20 160&quot;</code></pre>
+</div>
+<div id="cleaning-the-data" class="section level2">
+<h2>Cleaning the Data</h2>
+<p>Many columns are almost entirely NAs. Examine the distribution of NAs.</p>
+<pre class="r"><code># get the counts of NA in each column
+na_count &lt;-sapply(pml_train, function(y) sum(length(which(is.na(y)))))
+
+# look at the distribution of counts
+table(na_count)</code></pre>
+<pre><code>## na_count
+##     0     1 19216 19217 19218 19220 19221 19225 19226 19227 19248 19293 
+##    57     3    67     1     1     1     4     1     4     2     2     1 
+## 19294 19296 19299 19300 19301 19622 
+##     1     2     1     4     2     6</code></pre>
+<p>We see 57 columns with no NAs, and 3 columns with 1 NA. The rest of the columns are over 97% NA.</p>
+<p>Also, a visual examination of the data shows that the first 6 columns are useful as predictors. Remove these as well.</p>
+<pre class="r"><code># remove the columns with 19216 or more NAs
+cols_to_remove &lt;- which(na_count &gt;= 19216)
+
+# also remove the first 6 columns
+cols_to_remove &lt;- union(cols_to_remove, 1:6)
+
+# whatever is done to one data set must be done to the other
+train_data &lt;- subset(pml_train, select = -cols_to_remove)
+test_data &lt;- subset(pml_test, select = -cols_to_remove)
+print(paste(&quot;train_data&quot;, paste(dim(train_data), collapse=&quot; &quot;)))</code></pre>
+<pre><code>## [1] &quot;train_data 19622 54&quot;</code></pre>
+<pre class="r"><code>print(paste(&quot;test_data&quot;, paste(dim(test_data), collapse=&quot; &quot;)))</code></pre>
+<pre><code>## [1] &quot;test_data 20 54&quot;</code></pre>
+<p>So we are down to 19622 rows and 54 columns.</p>
+<p>Let’s just look at complete cases (rows with no NAs).</p>
+<pre class="r"><code># only keep records with no NAs
+train_data &lt;- train_data[complete.cases(train_data),]
+print(paste(&quot;train_data&quot;, paste(dim(train_data), collapse=&quot; &quot;)))</code></pre>
+<pre><code>## [1] &quot;train_data 19621 54&quot;</code></pre>
+<pre class="r"><code>print(paste(&quot;test_data&quot;, paste(dim(test_data), collapse=&quot; &quot;)))</code></pre>
+<pre><code>## [1] &quot;test_data 20 54&quot;</code></pre>
+<p>We see one row was removed.</p>
+<p>Normally data would be split something like 60% train, 20% validation and 20% test. Here Train has 19621 records and Test only has 20 records. So pml_test is not really a test set. pml_test will be used to submit predictions to the last quiz in the course, but nothing else.</p>
+<p>We need to create a train and test set from train_data.</p>
+<pre class="r"><code>set.seed(314159) # For reproducibile purpose
+indexes &lt;- createDataPartition(train_data$classe, p=0.70, list=F)
+train &lt;- train_data[indexes, ]
+test &lt;- train_data[-indexes, ]
+print(paste(&quot;train&quot;, paste(dim(train), collapse=&quot; &quot;)))</code></pre>
+<pre><code>## [1] &quot;train 13737 54&quot;</code></pre>
+<pre class="r"><code>print(paste(&quot;test&quot;, paste(dim(test), collapse=&quot; &quot;)))</code></pre>
+<pre><code>## [1] &quot;test 5884 54&quot;</code></pre>
+</div>
+<div id="building-the-model" class="section level2">
+<h2>Building the Model</h2>
+<div id="for-performance-only" class="section level3">
+<h3>For Performance Only</h3>
+<p>My Linux computer as 4 cores. Use all 4 cores to create the Random Forest</p>
+<pre class="r"><code>library(doParallel)
+
+# be sure to stop an existing cluster before starting a new one
+if (exists(&quot;cl&quot;)) {
+    stopCluster(cl)
+}
+
+# FORK only works on Linux
+cl &lt;- makeCluster(4, type=&quot;FORK&quot;)
+registerDoParallel(cl)</code></pre>
+<p>Use 5 fold cross validation. Allow parallel processing.</p>
+<pre class="r"><code>controlRF &lt;- trainControl(method = &quot;cv&quot;,
+                           number = 5,
+                           allowParallel = TRUE)
+modelRF &lt;- train(classe ~ ., data=train, method=&quot;rf&quot;, trControl=controlRF, ntree=250)
+modelRF</code></pre>
+<pre><code>## Random Forest 
+## 
+## 13737 samples
+##    53 predictor
+##     5 classes: 'A', 'B', 'C', 'D', 'E' 
+## 
+## No pre-processing
+## Resampling: Cross-Validated (5 fold) 
+## Summary of sample sizes: 10991, 10990, 10989, 10989, 10989 
+## Resampling results across tuning parameters:
+## 
+##   mtry  Accuracy   Kappa    
+##    2    0.9922110  0.9901461
+##   27    0.9965785  0.9956722
+##   53    0.9942492  0.9927258
+## 
+## Accuracy was used to select the optimal model using  the largest value.
+## The final value used for the model was mtry = 27.</code></pre>
+</div>
+</div>
+<div id="estimate-the-accuarcy" class="section level2">
+<h2>Estimate the Accuarcy</h2>
+<p>The caret package automatically tuned the mtry hyperparameter to be 27. As the train data was used to find the best model, we cannot also use it to estimate accuarcy of the best model it found (without being overly optimistic).</p>
+<pre class="r"><code># use the best RF model (mtry=27) on the test data and compute the accuarcy
+predictRf &lt;- predict(modelRF, test)
+confusionMatrix(test$classe, predictRf)</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 1673    0    0    0    0
+##          B    3 1135    1    0    0
+##          C    0    3 1023    0    0
+##          D    0    0    6  957    1
+##          E    0    2    0    1 1079
+## 
+## Overall Statistics
+##                                           
+##                Accuracy : 0.9971          
+##                  95% CI : (0.9954, 0.9983)
+##     No Information Rate : 0.2848          
+##     P-Value [Acc &gt; NIR] : &lt; 2.2e-16       
+##                                           
+##                   Kappa : 0.9963          
+##  Mcnemar's Test P-Value : NA              
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity            0.9982   0.9956   0.9932   0.9990   0.9991
+## Specificity            1.0000   0.9992   0.9994   0.9986   0.9994
+## Pos Pred Value         1.0000   0.9965   0.9971   0.9927   0.9972
+## Neg Pred Value         0.9993   0.9989   0.9986   0.9998   0.9998
+## Prevalence             0.2848   0.1937   0.1751   0.1628   0.1835
+## Detection Rate         0.2843   0.1929   0.1739   0.1626   0.1834
+## Detection Prevalence   0.2843   0.1936   0.1744   0.1638   0.1839
+## Balanced Accuracy      0.9991   0.9974   0.9963   0.9988   0.9992</code></pre>
+<p>We see from above that the estimated accuarcy is 99.71% with a 95% confidence interval of the accuarcy being 99.54% to 99.83%.</p>
+<p>As this model was run on out-of-sample data, 99.71% is the out-of-sample accuarcy. The out-of-sample error rate is the compliment of this, which is 0.29%</p>
+</div>
+<div id="predict-on-pml_test-with-appropriate-columns-removed-for-the-quiz" class="section level2">
+<h2>Predict on pml_test (with appropriate columns removed) for the Quiz</h2>
+<pre class="r"><code>predict(modelRF, test_data)</code></pre>
+<pre><code>##  [1] B A B A A E D B A A B C B A E E A B B B
+## Levels: A B C D E</code></pre>
+</div>
+<div id="house-keeping-for-parallel-processing-only" class="section level2">
+<h2>House Keeping for Parallel Processing Only</h2>
+<p>It’s a good idea to shut down the parallel cluster explicitly to ensure no memory leaks.</p>
+<pre class="r"><code>stopCluster(cl)</code></pre>
+</div>
 
 
 
