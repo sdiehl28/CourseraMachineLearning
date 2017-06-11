@@ -9,22 +9,95 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## Overview
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+This is the final project for the Data Science Specialization Course: Practical Machine Learning.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+## Background
 
-```{r cars}
-summary(cars)
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## Reading in the Data
+
+Looking at the data, there are 3 ways a number can be NA.  Account for that in read_csv.
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(caret)
+pml_train <- read_csv("./data/pml-training.csv", na=c("NA", "", "#DIV/0!"))
+pml_test <- read_csv("./data/pml-testing.csv", na=c("NA", "", "#DIV/0!"))
+print(paste("Train", paste(dim(pml_train), collapse=" ")))
+print(paste("Test", paste(dim(pml_test), collapse=" ")))
 ```
 
-## Including Plots
+## Cleaning the Data
 
-You can also embed plots, for example:
+```{r}
+# get the counts of NA in each column
+na_count <-sapply(pml_train, function(y) sum(length(which(is.na(y)))))
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+# if there are more than 95% NAs, remove that column
+cols_to_remove <- which(na_count > 0.95*19622)
+
+# examination of columns by eye shows that first 6 columns are also not meaninful predictors
+cols_to_remove <- union(cols_to_remove, 1:6)
+
+# whatever is done to one data set must be done to the other
+train <- subset(pml_train, select = -cols_to_remove)
+test <- subset(pml_test, select = -cols_to_remove)
+print(paste("Train", paste(dim(train), collapse=" ")))
+print(paste("Test", paste(dim(test), collapse=" ")))
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Normally data would be split something like 60% train, 20% validation, 20% test.  Here we see Train has 19622 records and Test only has 20 records.  So pml_test is not really a test set.  It will be used to submit results for the last quiz in the course, but that's it.
+
+Break pml_train into train and test.
+```{r}
+set.seed(314159) # For reproducibile purpose
+indexes <- createDataPartition(pml_train$classe, p=0.70, list=F)
+train <- pml_train[indexes, ]
+test <- pml_train[-indexes, ]
+```
+
+## Building the Model
+
+Random Forests work well with almost no preprocessing.  Its okay to keep columns that are mostly NA, or rows that have NA in them.  This does not affect the accuarcy of the Random Forest.
+
+That said, if a column cannot possibly be of value as a predictor, such as:
+
+- Record number in column 1
+- Time value in column 3
+- Time value in column 4
+- Time value in column 5
+
+then these columns should be removed.  Whatever is done to the training data set, must also be done to the other data sets.
+
+Also, let's remove columns with near zero variance.
+
+```{r}
+indexes <- union(nearZeroVar(pml_train), c(1,3,4,5))
+
+train_processed <- subset(train, select = -indexes)
+test_processed <- subset(test, select = -indexes)
+test_quiz_processed <- subset(pml_test, select = -indexes)
+print(paste("Train", paste(dim(train_processed), collapse=" ")))
+print(paste("Test",  paste(dim(test_processed), collapse=" ")))
+print(paste("Quiz",  paste(dim(test_quiz_processed), collapse=" ")))
+```
+
+```{r}
+controlRF <- trainControl(method="cv", 5)
+modelRF <- train(classe ~ ., data=train_processed, method="rf", trControl=controlRF, 
+                 ntree=250, na.action = na.pass) # NA's are okay
+modelRF
+```
+
